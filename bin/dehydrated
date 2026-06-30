@@ -1164,10 +1164,21 @@ sign_csr() {
       order_payload="${order_payload}"',"profile":"'"${ACME_PROFILE}"'"'
     fi
     order_payload="${order_payload}"'}'
-    order_location="$(signed_request "${CA_NEW_ORDER}" "${order_payload}" 4>&1 | grep -i ^Location: | cut -d':' -f2- | tr -d ' \t\r\n')"
-    result="$(signed_request "${order_location}" "" | jsonsh)"
 
+    #order_location="$(signed_request "${CA_NEW_ORDER}" "${order_payload}" 4>&1 | grep -i ^Location: | cut -d':' -f2- | tr -d ' \t\r\n')"
+    tmp_order_headers="$(_mktemp)"
+    result="$(signed_request "${CA_NEW_ORDER}" "${order_payload}" 4>${tmp_order_headers} | jsonsh)"
+    order_headers="$(<$tmp_order_headers)"
+    rm "${tmp_order_headers}"
+    order_location="$(echo "${order_headers}" | grep -i ^Location: | cut -d':' -f2- | tr -d ' \t\r\n')"
+    # warden: look for CA-provided authorizations from POST to $CA_NEW_ORDER
     order_authorizations="$(echo "${result}" | get_json_array_values authorizations)"
+    # warden: if no CA-supplied challenges, ask Order URL
+    if [[ -z "${order_authorizations}" ]]; then
+      echo " + no authorizations found in response to ${CA_NEW_ORDER}, asking ${order_location}"
+      result="$(signed_request "${order_location}" "" | jsonsh)"
+      order_authorizations="$(echo "${result}" | get_json_array_values authorizations)"
+    fi
     finalize="$(echo "${result}" | get_json_string_value finalize)"
 
     local idx=0
